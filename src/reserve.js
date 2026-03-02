@@ -42,24 +42,49 @@ function sleep(ms) {
 
 // ─── Find candidates ─────────────────────────────────────────────────────────
 
-/** Returns an ordered list of {date, slot, court} candidates to try */
+/** Returns an ordered list of {date, slot, court} candidates to try.
+ *  Strategy: first try week 2 (8–14 dagen), dan week 1 (1–7 dagen).
+ *  Reden: slots 2 weken vooruit zijn net beschikbaar geworden en hebben
+ *  de hoogste kans op beschikbaarheid. */
 function buildCandidates() {
     const horizon = new Date();
     horizon.setDate(horizon.getDate() + config.horizonDays);
 
     const preferences = isTest ? [config.testSlot] : config.slotPreferences;
 
-    const candidates = [];
+    const week2 = []; // 2e week (8-14 dagen vooruit) — prioriteit
+    const week1 = []; // 1e week (1-7 dagen vooruit) — fallback
+
     for (const slot of preferences) {
-        const date = nextOccurrence(slot.dayOfWeek);
-        if (date > horizon) {
-            logger.warn(`${slot.label}: te ver in de toekomst (buiten horizon), overgeslagen`);
-            continue;
+        const dateWeek1 = nextOccurrence(slot.dayOfWeek);       // eerstvolgende
+        const dateWeek2 = new Date(dateWeek1);
+        dateWeek2.setDate(dateWeek1.getDate() + 7);             // week erna
+
+        // Week 2 (als binnen horizon)
+        if (dateWeek2 <= horizon) {
+            for (const court of config.courts) {
+                week2.push({ date: dateWeek2, slot, court });
+            }
         }
-        for (const court of config.courts) {
-            candidates.push({ date, slot, court });
+
+        // Week 1 (als binnen horizon)
+        if (dateWeek1 <= horizon) {
+            for (const court of config.courts) {
+                week1.push({ date: dateWeek1, slot, court });
+            }
         }
     }
+
+    const candidates = [...week2, ...week1];
+
+    if (candidates.length === 0) {
+        logger.warn('Geen kandidaten binnen de horizon gevonden.');
+    } else {
+        const w2count = week2.length;
+        const w1count = week1.length;
+        logger.info(`Kandidaten: ${w2count} in week 2 (prioriteit), ${w1count} in week 1 (fallback)`);
+    }
+
     return candidates;
 }
 

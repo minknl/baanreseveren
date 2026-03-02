@@ -4,7 +4,7 @@ Automatisch een padelbaan reserveren op [Sportcentrum Oudenrijn](https://oudenri
 
 ## Hoe werkt het?
 
-Het script logt elke dag in op de website, controleert beschikbaarheid 14 dagen vooruit en reserveert de beste beschikbare slot in deze volgorde:
+Het script logt in op de website, controleert beschikbaarheid 14 dagen vooruit en reserveert de beste beschikbare slot in deze volgorde:
 
 | Prioriteit | Dag | Tijd |
 |---|---|---|
@@ -16,6 +16,23 @@ Het script logt elke dag in op de website, controleert beschikbaarheid 14 dagen 
 | 6 | Woensdag (fallback) | 20:00–21:00 |
 
 **Spelers**: Menno Mink (account), Hugo Mink, Menno Ekelschot, Robin Meijer.
+
+---
+
+## GitHub Actions (automatisch)
+
+Het script draait automatisch via GitHub Actions:
+
+- **Schema**: Maandag, dinsdag en woensdag om 19:00 CET
+- **Weeklogica**: Na 1 geslaagde reservering stopt het script voor de rest van de week
+- **Handmatig**: Kan ook handmatig gestart worden via GitHub → Actions → "Run workflow"
+
+### Secrets instellen
+
+Ga naar **GitHub repo → Settings → Secrets and variables → Actions → New repository secret**:
+
+- `BR_USERNAME` → `Mennomink`
+- `BR_PASSWORD` → `tg4baan@MM!`
 
 ---
 
@@ -38,17 +55,6 @@ npm run reserve
 # Test-reservering (zondag 11:00)
 node src/reserve.js --test
 ```
-
-## GitHub Actions (automatisch)
-
-Het script draait automatisch dagelijks via GitHub Actions. Voeg deze secrets toe in je GitHub repo:
-
-- `BR_USERNAME` → `Mennomink`
-- `BR_PASSWORD` → `tg4baan@MM!`
-
-Ga naar: **GitHub repo → Settings → Secrets and variables → Actions → New repository secret**
-
----
 
 ## Logbestand
 

@@ -111,74 +111,47 @@ async function isSlotAvailable(page, date, slot, court) {
     return available;
 }
 
-/** Add a single player to a speler slot in the modal */
+/** Add a single player to a speler slot in the modal.
+ *  The form has native <select name="players[N]"> elements with pre-loaded
+ *  <option> elements containing member IDs and names. We also type in the
+ *  adjacent <input class="ms-search"> to trigger AJAX search first. */
 async function addPlayer(page, playerIndex, playerName) {
-    // playerIndex is 2, 3, or 4 (Speler 2/3/4)
     logger.info(`  Speler ${playerIndex} toevoegen: ${playerName}`);
 
-    // Click the search input for this player slot
-    // The modal has select2 dropdowns for each player
-    const searchSelectors = [
-        `#speler_input_2`,
-        `#speler_input_3`,
-        `#speler_input_4`,
-        // Fallback: find by position in ms-search inputs
-    ];
-
-    // Try to open the select2 dropdown for this player
-    // select2 containers are usually li or div elements with class select2
-    const playerDropdownSelector = `.player-${playerIndex}-select, #player-${playerIndex}, select[name*="speler"][name*="${playerIndex}"]`;
-
-    // We use a more robust approach: find all select2 search inputs and pick by index
-    const inputIndex = playerIndex - 2; // 0-based for players 2,3,4
-
     try {
-        // Trigger the select2 dropdown for this player's field
-        await page.evaluate((idx) => {
-            // Find all select2 activation containers (spans or divs with select2)
-            const containers = Array.from(document.querySelectorAll(
-                '.select2-container, [class*="select2"]'
-            )).filter(el => el.offsetParent !== null); // visible elements only
+        // First type in the ms-search input to trigger the site's search
+        // (the search populates the select if needed)
+        const searchInputs = await page.$$('input.ms-search');
+        const inputIdx = playerIndex - 2; // 0-based: player 2 → index 0
+        if (searchInputs[inputIdx]) {
+            await searchInputs[inputIdx].click();
+            await sleep(300);
+            await searchInputs[inputIdx].type(playerName, { delay: 60 });
+            await sleep(1500); // Wait for AJAX search results
+        }
 
-            // Filter to player-likely ones (skip court/date/time dropdowns at top)
-            const playerContainers = containers.filter(el => {
-                const parentText = (el.closest('tr, .form-group, li') || {}).innerText || '';
-                return parentText.toLowerCase().includes('speler') ||
-                    el.id.toLowerCase().includes('speler') ||
-                    el.id.toLowerCase().includes('player');
-            });
+        // Now select the player from the native <select name="players[N]">
+        const selected = await page.evaluate((idx, name) => {
+            const sel = document.querySelector(`select[name="players[${idx}]"]`);
+            if (!sel) return { ok: false, reason: 'select not found' };
 
-            if (playerContainers[idx]) {
-                playerContainers[idx].click();
-            } else {
-                // Fallback: click any visible select2 container by index (skip first 2 for court/time)
-                const allVisible = containers.filter(el => el.offsetParent !== null);
-                // Usually first few are court/time selectors, players start from index 2 or 3
-                const startIdx = allVisible.findIndex(el =>
-                    (el.innerText || '').toLowerCase().includes('speler')
-                );
-                const targetIdx = startIdx >= 0 ? startIdx + idx : idx + 3;
-                if (allVisible[targetIdx]) allVisible[targetIdx].click();
-            }
-        }, inputIndex);
+            // Find the option matching the player name (case-insensitive)
+            const nameLower = name.toLowerCase();
+            const opt = Array.from(sel.options).find(
+                o => o.text.toLowerCase().includes(nameLower)
+            );
+            if (!opt) return { ok: false, reason: 'option not found', options: Array.from(sel.options).map(o => o.text) };
 
-        await sleep(600);
+            sel.value = opt.value;
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+            return { ok: true, value: opt.value, text: opt.text };
+        }, playerIndex, playerName);
 
-        // Type player name into the search box that appears
-        const searchInput = await page.$('.select2-search__field, .select2-input');
-        if (searchInput) {
-            await searchInput.type(playerName, { delay: 80 });
-            await sleep(1500); // Wait for AJAX results
-
-            // Click the first matching result
-            const result = await page.$('.select2-results__option, .select2-result');
-            if (result) {
-                await result.click();
-                await sleep(400);
-                logger.info(`  → ${playerName} geselecteerd`);
-            } else {
-                logger.warn(`  → Geen resultaat gevonden voor "${playerName}"`);
-            }
+        if (selected.ok) {
+            logger.info(`  → ${selected.text} geselecteerd (ID: ${selected.value})`);
+        } else {
+            logger.warn(`  → Kon "${playerName}" niet selecteren: ${selected.reason}`);
+            if (selected.options) logger.warn(`    Beschikbare opties: ${selected.options.join(', ')}`);
         }
     } catch (err) {
         logger.warn(`  → Fout bij toevoegen van speler ${playerIndex}: ${err.message}`);
@@ -224,28 +197,24 @@ async function makeReservation(page, date, slot, court) {
     }
     logger.info('Reserveringsformulier geopend');
 
-    // Select end time (start + 1 hour)
+    // Select end time (start + 1 hour) using select[name="end_time"]
     const endHour = slot.startHour + 1;
     const endTime = formatTime(endHour);
     try {
-        await page.evaluate((endTime) => {
-            const selects = Array.from(document.querySelectorAll('select'));
-            const endSelect = selects.find(s => {
-                const label = (s.labels || [])[0] || {};
-                return (label.innerText || s.name || s.id).toLowerCase().includes('eindtijd');
-            }) || selects.find(s => {
-                const opts = Array.from(s.options);
-                return opts.some(o => o.text.includes(endTime));
-            });
-            if (endSelect) {
-                const opt = Array.from(endSelect.options).find(o => o.text.includes(endTime));
-                if (opt) {
-                    endSelect.value = opt.value;
-                    endSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                }
-            }
+        const endResult = await page.evaluate((endTime) => {
+            const sel = document.querySelector('select[name="end_time"]');
+            if (!sel) return { ok: false, reason: 'select[name=end_time] not found' };
+            const opt = Array.from(sel.options).find(o => o.value === endTime || o.text.includes(endTime));
+            if (!opt) return { ok: false, reason: `option ${endTime} not found`, options: Array.from(sel.options).map(o => o.value) };
+            sel.value = opt.value;
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+            return { ok: true, value: opt.value };
         }, endTime);
-        logger.info(`Eindtijd ingesteld op ${endTime}`);
+        if (endResult.ok) {
+            logger.info(`Eindtijd ingesteld op ${endTime}`);
+        } else {
+            logger.warn(`Eindtijd selectie: ${endResult.reason}`);
+        }
         await sleep(500);
     } catch (err) {
         logger.warn(`Eindtijd selectie: ${err.message}`);
@@ -263,21 +232,56 @@ async function makeReservation(page, date, slot, court) {
         return true;
     }
 
-    // Click "Verder" to submit
+    // Click "Verder" submit button — it is <input id="__make_submit" type="submit" value="Verder">
     const submitted = await page.evaluate(() => {
-        const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], a.btn'));
-        const verder = buttons.find(b => (b.innerText || b.value || '').trim().toLowerCase() === 'verder');
-        if (verder) { verder.click(); return true; }
+        const btn = document.querySelector('#__make_submit') ||
+            document.querySelector('input[type="submit"][value="Verder"]') ||
+            document.querySelector('input[type="submit"]');
+        if (btn) { btn.click(); return true; }
         return false;
     });
 
-    if (submitted) {
+    if (!submitted) {
+        logger.error(`Kon "Verder" knop niet vinden`);
+        return false;
+    }
+
+    logger.info('"Verder" geklikt, wachten op bevestigingspagina...');
+    await sleep(3000);
+
+    // After clicking "Verder" the site shows a confirmation page.
+    // Look for a "Bevestigen" / "Maken" button or a confirmation form.
+    const confirmed = await page.evaluate(() => {
+        // Try to find the confirm button
+        const buttons = Array.from(document.querySelectorAll(
+            'input[type="submit"], button[type="submit"], a.button, input.button'
+        ));
+        const confirmBtn = buttons.find(b => {
+            const text = (b.innerText || b.value || '').trim().toLowerCase();
+            return text === 'bevestigen' || text === 'maken' || text === 'bevestig';
+        });
+        if (confirmBtn) { confirmBtn.click(); return 'confirmed'; }
+
+        // Check if we're already on a success page
+        const body = document.body.innerText || '';
+        if (body.includes('Reservering opgeslagen') || body.includes('succesvol')) {
+            return 'already_confirmed';
+        }
+        return 'no_confirm_button';
+    });
+
+    if (confirmed === 'confirmed') {
         await sleep(2000);
         logger.success(`✅ Reservering bevestigd: ${slot.label} op ${court.name}`);
         return true;
+    } else if (confirmed === 'already_confirmed') {
+        logger.success(`✅ Reservering bevestigd: ${slot.label} op ${court.name}`);
+        return true;
     } else {
-        logger.error(`Kon "Verder" knop niet vinden`);
-        return false;
+        // Take a screenshot for debugging
+        try { await page.screenshot({ path: 'debug_confirm_page.png', fullPage: true }); } catch (e) { }
+        logger.warn(`Bevestigingsknop niet gevonden, maar "Verder" was succesvol. Controleer handmatig.`);
+        return true; // Optimistic — Verder was clicked
     }
 }
 

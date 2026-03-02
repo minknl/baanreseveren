@@ -2,9 +2,11 @@ name: Padel Auto-Reservering
 
 on:
   schedule:
-    # Draait dagelijks om 07:00 UTC (= 08:00 of 09:00 NL tijd afhankelijk van zomer/wintertijd)
-    - cron: '0 7 * * *'
-  workflow_dispatch:  # Handmatig starten via GitHub UI
+    # Draait op maandag, dinsdag en woensdag om 18:00 UTC (= 19:00 CET / 20:00 CEST)
+    # Let op: GitHub Actions ondersteunt geen tijdzones, dus in zomertijd verschuift dit naar 20:00 NL
+    # Pas de cron aan naar '0 17 * * 1,2,3' als je 19:00 CEST (zomertijd) wilt
+    - cron: '0 18 * * 1,2,3'
+  workflow_dispatch: # Handmatig starten via GitHub UI
 
 jobs:
   reserve:
@@ -14,20 +16,60 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # --- Weekly dedup: check of deze week al geboekt is ---
+      - name: Bepaal weeknummer
+        id: week
+        run: echo "week_key=padel-week-$(date +%G-%V)" >> $GITHUB_OUTPUT
+
+      - name: Check weekcache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: .week-booked
+          key: ${{ steps.week.outputs.week_key }}
+
+      - name: Skip als al geboekt
+        if: steps.cache.outputs.cache-hit == 'true'
+        run: |
+          echo "✅ Deze week is al een reservering gemaakt. Overslaan."
+          exit 0
+
+      # --- Reservering uitvoeren ---
       - name: Setup Node.js
+        if: steps.cache.outputs.cache-hit != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
       - name: Install dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
         run: npm ci
 
       - name: Install Puppeteer browser
+        if: steps.cache.outputs.cache-hit != 'true'
         run: npx puppeteer browsers install chrome
 
       - name: Run reservation script
+        if: steps.cache.outputs.cache-hit != 'true'
+        id: reserve
         env:
           BR_USERNAME: ${{ secrets.BR_USERNAME }}
           BR_PASSWORD: ${{ secrets.BR_PASSWORD }}
           BR_BASE_URL: https://oudenrijn.baanreserveren.nl
-        run: node src/reserve.js
+        run: |
+          node src/reserve.js 2>&1 | tee reservation_output.txt
+          # Check of reservering gelukt is
+          if grep -q "Reservering bevestigd" reservation_output.txt; then
+            echo "booked=true" >> $GITHUB_OUTPUT
+            echo "✅ Reservering geslaagd!"
+          else
+            echo "booked=false" >> $GITHUB_OUTPUT
+            echo "❌ Geen reservering gemaakt (geen beschikbare slots)"
+          fi
+
+      # --- Markeer week als geboekt bij succes ---
+      - name: Markeer als geboekt
+        if: steps.cache.outputs.cache-hit != 'true' && steps.reserve.outputs.booked == 'true'
+        run: |
+          echo "Geboekt op $(date -u +%Y-%m-%dT%H:%M:%SZ)" > .week-booked
+          echo "🎾 Weekcache aangemaakt — volgende runs deze week worden overgeslagen."

@@ -1,0 +1,14 @@
+{
+  "name": "padel-auto-reserve",
+  "version": "1.0.0",
+  "description": "Automatische padelbaan reservering voor Sportcentrum Oudenrijn",
+  "main": "src/reserve.js",
+  "scripts": {
+    "reserve": "node src/reserve.js",
+    "dry-run": "node src/reserve.js --dry-run"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "puppeteer": "^24.2.0"
+  }
+}

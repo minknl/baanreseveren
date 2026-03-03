@@ -32,7 +32,7 @@ Het script draait automatisch via GitHub Actions:
 Ga naar **GitHub repo → Settings → Secrets and variables → Actions → New repository secret**:
 
 - `BR_USERNAME` → `Mennomink`
-- `BR_PASSWORD` → `tg4baan@MM!`
+- `BR_PASSWORD` → `wachtwoord`
 
 ---
 

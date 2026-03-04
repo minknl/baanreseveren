@@ -2,9 +2,9 @@ name: Padel Auto-Reservering
 
 on:
   schedule:
-    # Draait op maandag, dinsdag en woensdag om 17:00 en 18:00 UTC (18:00 en 19:00 CET)
-    # Let op: GitHub Actions ondersteunt geen tijdzones, dus in zomertijd verschuift dit een uur
-    - cron: '0 17,18 * * 1,2,3'
+    # Start om 17:00 UTC (18:00 CET) — het script wacht zelf tot precies 19:00 CET
+    # GitHub Actions kan tot 30 min vertraagd zijn, dus we starten ruim op tijd
+    - cron: '0 17 * * 1,2,3'
   workflow_dispatch: # Handmatig starten via GitHub UI
 
 jobs:

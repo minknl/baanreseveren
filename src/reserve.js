@@ -40,6 +40,45 @@ function sleep(ms) {
     return new Promise(r => setTimeout(r, ms));
 }
 
+/** Get current time in Europe/Amsterdam as a Date-like object */
+function getNowCET() {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/Amsterdam',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false
+    }).formatToParts(new Date());
+
+    const get = type => parts.find(p => p.type === type).value;
+    return {
+        hour: parseInt(get('hour'), 10),
+        minute: parseInt(get('minute'), 10),
+        second: parseInt(get('second'), 10)
+    };
+}
+
+/** Wait until exactly TARGET_HOUR:TARGET_MIN CET before continuing.
+ *  If that time has already passed today, continue immediately. */
+async function waitUntilTarget() {
+    const TARGET_HOUR = 19;
+    const TARGET_MIN = 0;
+
+    const now = getNowCET();
+    const nowSeconds = now.hour * 3600 + now.minute * 60 + now.second;
+    const targetSeconds = TARGET_HOUR * 3600 + TARGET_MIN * 60;
+    const diffMs = (targetSeconds - nowSeconds) * 1000;
+
+    if (diffMs > 0) {
+        const mins = Math.floor(diffMs / 60000);
+        const secs = Math.floor((diffMs % 60000) / 1000);
+        logger.info(`⏳ Wachten tot 19:00 CET (nog ${mins}m ${secs}s)...`);
+        await sleep(diffMs);
+        logger.info(`⏰ 19:00 CET bereikt! Reservering starten...`);
+    } else {
+        logger.info(`Klok is al voorbij 19:00 CET (${now.hour}:${String(now.minute).padStart(2, '0')}), direct doorgaan.`);
+    }
+}
+
 // ─── Find candidates ─────────────────────────────────────────────────────────
 
 /** Returns an ordered list of {date, slot, court} candidates to try.
@@ -333,6 +372,9 @@ async function main() {
 
     try {
         await login(page);
+
+        // Wacht tot precies 19:00 CET voordat we beschikbaarheid checken
+        await waitUntilTarget();
 
         for (const { date, slot, court } of candidates) {
             const available = await isSlotAvailable(page, date, slot, court);

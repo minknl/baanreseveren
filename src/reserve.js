@@ -83,18 +83,28 @@ async function waitUntilTarget() {
 
 /** Returns an ordered list of {date, slot, court} candidates to try.
  *  Strategy: first try week 2 (8–14 dagen), dan week 1 (1–7 dagen).
- *  Reden: slots 2 weken vooruit zijn net beschikbaar geworden en hebben
- *  de hoogste kans op beschikbaarheid. */
+ *  Binnen week 2 krijgen slots voor de HUIDIGE dag van de week prioriteit,
+ *  omdat die net zijn vrijgekomen en de hoogste kans op beschikbaarheid hebben. */
 function buildCandidates() {
     const horizon = new Date();
     horizon.setDate(horizon.getDate() + config.horizonDays);
 
     const preferences = isTest ? [config.testSlot] : config.slotPreferences;
 
+    // Sorteer preferences: vandaag-eerst, dan de rest in volgorde
+    const todayDow = new Date().getDay(); // 0=Sun, 1=Mon, ...
+    const sorted = [...preferences].sort((a, b) => {
+        const aToday = a.dayOfWeek === todayDow ? 0 : 1;
+        const bToday = b.dayOfWeek === todayDow ? 0 : 1;
+        return aToday - bToday;
+    });
+
+    logger.info(`Vandaag is dag ${todayDow} — slots voor dag ${todayDow} krijgen prioriteit`);
+
     const week2 = []; // 2e week (8-14 dagen vooruit) — prioriteit
     const week1 = []; // 1e week (1-7 dagen vooruit) — fallback
 
-    for (const slot of preferences) {
+    for (const slot of sorted) {
         const dateWeek1 = nextOccurrence(slot.dayOfWeek);       // eerstvolgende
         const dateWeek2 = new Date(dateWeek1);
         dateWeek2.setDate(dateWeek1.getDate() + 7);             // week erna
